@@ -1,78 +1,61 @@
 #!/usr/bin/env python3
 
-# command line args
 import argparse
-parser = argparse.ArgumentParser()
-parser.add_argument('--input_path',required=True)
-parser.add_argument('--output_folder',default='outputs')
-args = parser.parse_args()
-
-# imports
 import os
 import zipfile
-import datetime 
+import datetime
 import json
-from collections import Counter,defaultdict
+from collections import Counter, defaultdict
 
-# load keywords
-hashtags = [
-    '#코로나바이러스',  # korean
-    '#コロナウイルス',  # japanese
-    '#冠状病毒',        # chinese
-    '#covid2019',
-    '#covid-2019',
-    '#covid19',
-    '#covid-19',
-    '#coronavirus',
-    '#corona',
-    '#virus',
-    '#flu',
-    '#sick',
-    '#cough',
-    '#sneeze',
-    '#hospital',
-    '#nurse',
-    '#doctor',
-    ]
+parser = argparse.ArgumentParser()
+parser.add_argument('--input_path', required=True)
+parser.add_argument('--output_folder', default='outputs')
+args = parser.parse_args()
 
-# initialize counters
-counter_lang = defaultdict(lambda: Counter())
+# Load hashtags from file (per assignment spec)
+with open("hashtags", "r", encoding="utf-8") as f:
+    hashtags = [line.strip().lower() for line in f if line.strip()]
 
-# open the zipfile
+counter_lang = defaultdict(Counter)
+counter_country = defaultdict(Counter)
+
 with zipfile.ZipFile(args.input_path) as archive:
+    for filename in archive.namelist():
+        print(datetime.datetime.now(), args.input_path, filename)
 
-    # loop over every file within the zip file
-    for i,filename in enumerate(archive.namelist()):
-        print(datetime.datetime.now(),args.input_path,filename)
-
-        # open the inner file
         with archive.open(filename) as f:
-
-            # loop over each line in the inner file
             for line in f:
+                try:
+                    tweet = json.loads(line)
+                except Exception:
+                    continue
 
-                # load the tweet as a python dictionary
-                tweet = json.loads(line)
+                text = (tweet.get("text") or "").lower()
+                lang = tweet.get("lang", "und")
 
-                # convert text to lower case
-                text = tweet['text'].lower()
+                country = "unknown"
+                place = tweet.get("place")
+                if isinstance(place, dict):
+                    country = place.get("country_code", "unknown") or "unknown"
 
-                # search hashtags
+                # Count ALL tweets once per tweet (not once per hashtag)
+                counter_lang["_all"][lang] += 1
+
+                # Count tracked hashtags
                 for hashtag in hashtags:
-                    lang = tweet['lang']
                     if hashtag in text:
                         counter_lang[hashtag][lang] += 1
-                    counter_lang['_all'][lang] += 1
+                        counter_country[hashtag][country] += 1
 
-# open the outputfile
-try:
-    os.makedirs(args.output_folder)
-except FileExistsError:
-    pass
-output_path_base = os.path.join(args.output_folder,os.path.basename(args.input_path))
+os.makedirs(args.output_folder, exist_ok=True)
+output_path_base = os.path.join(args.output_folder, os.path.basename(args.input_path))
 
-output_path_lang = output_path_base+'.lang'
-print('saving',output_path_lang)
-with open(output_path_lang,'w') as f:
-    f.write(json.dumps(counter_lang))
+output_path_lang = output_path_base + ".lang"
+print("saving", output_path_lang)
+with open(output_path_lang, "w", encoding="utf-8") as f:
+    json.dump(counter_lang, f, ensure_ascii=False)
 
+output_path_country = output_path_base + ".country"
+print("saving", output_path_country)
+with open(output_path_country, "w", encoding="utf-8") as f:
+    json.dump(counter_country, f, ensure_ascii=False)
